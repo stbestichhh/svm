@@ -24,8 +24,22 @@ svm ubuntu -m
 * Docker installed and running
 
 ### Installation
+
+#### 1. Via `curl`
 ```shell
-    
+curl -fsSL https://raw.githubusercontent.com/stbestichhh/svm/refs/heads/master/svm -o svm
+chmod +x svm
+sudo mv svm /usr/local/bin/
 ```
-chmod +x sandbox
-sudo mv sandbox /usr/local/bin/
+
+#### 2. Via `wget`
+```shell
+wget https://raw.githubusercontent.com/stbestichhh/svm/refs/heads/master/svm
+chmod +x svm
+sudo mv svm /usr/local/bin/
+```
+
+#### 3. One line install
+```shell
+curl -fsSL https://raw.githubusercontent.com/stbestichhh/svm/refs/heads/master/install.sh | bash
+```
