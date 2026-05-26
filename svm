@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+
+set -e
+
+MODE="$1"
+FLAG="$2"
+
+has_mount() {
+  [[ "$FLAG" == "--mount" || "$FLAG" == "-m" ]]
+}
+
+run_node() {
+  IMAGE="node:20"
+
+  if has_mount; then
+    docker run -it --rm \
+      -v "$PWD":/app \
+      -w /app \
+      "$IMAGE" \
+      bash
+  else
+    docker run -it --rm "$IMAGE" bash
+  fi
+}
+
+run_ubuntu() {
+  IMAGE="ubuntu"
+
+  if has_mount; then
+    docker run -it --rm \
+      -v "$PWD":/workspace \
+      -w /workspace \
+      "$IMAGE" \
+      bash
+  else
+    docker run -it --rm "$IMAGE" bash
+  fi
+}
+
+case "$MODE" in
+  node)
+    run_node
+    ;;
+  ubuntu)
+    run_ubuntu
+    ;;
+  help|-h|--help|"")
+    echo "svm - quick disposable Docker environments"
+    echo ""
+    echo "Usage:"
+    echo "  svm <image> [--mount|-m]"
+    echo ""
+    echo "Commands:"
+    echo "  node      Run Node.js environment (node:20)"
+    echo "  ubuntu    Run Ubuntu environment"
+    echo ""
+    echo "Flags:"
+    echo "  --mount, -m   Mount current directory into container"
+    echo ""
+    echo "Examples:"
+    echo "  svm node"
+    echo "  svm node --mount"
+    echo "  svm ubuntu -m"
+    ;;
+  *)
+    echo "Command not found. Use: svm help"
+    exit 1
+    ;;
+esac
