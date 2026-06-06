@@ -2,41 +2,179 @@
 
 set -e
 
-MODE="$1"
-FLAG="$2"
+MODE=""
+HAS_MOUNT=false
+PERSIST_NAME=""
+TARGET_NAME=""
 
-has_mount() {
-  [[ "$FLAG" == "--mount" || "$FLAG" == "-m" ]]
+# -------------------------
+# Parse arguments
+# -------------------------
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    node|ubuntu)
+      MODE="$1"
+      shift
+      ;;
+
+    -m|--mount)
+      HAS_MOUNT=true
+      shift
+      ;;
+
+    -p|--persist)
+      PERSIST_NAME="$2"
+      shift 2
+      ;;
+
+    ls|list)
+      MODE="list"
+      shift
+      ;;
+
+    open)
+      MODE="open"
+      TARGET_NAME="$2"
+      shift 2
+      ;;
+
+    rm|remove)
+      MODE="remove"
+      TARGET_NAME="$2"
+      shift 2
+      ;;
+
+    help|-h|--help|"")
+      MODE="help"
+      shift
+      ;;
+
+    *)
+      echo "Unknown argument: $1"
+      exit 1
+      ;;
+  esac
+done
+
+# -------------------------
+# Run container
+# -------------------------
+run_container() {
+  local IMAGE="$1"
+  local WORKDIR="$2"
+
+  if [[ -n "$PERSIST_NAME" ]]; then
+
+    if ! docker ps -a --format '{{.Names}}' | grep -q "^$PERSIST_NAME$"; then
+
+      if $HAS_MOUNT; then
+        docker create -it \
+          --name "$PERSIST_NAME" \
+          -v "$PWD":"$WORKDIR" \
+          -w "$WORKDIR" \
+          "$IMAGE" \
+          bash
+      else
+        docker create -it \
+          --name "$PERSIST_NAME" \
+          "$IMAGE" \
+          bash
+      fi
+    fi
+
+    docker start -ai "$PERSIST_NAME"
+    return
+  fi
+
+  if $HAS_MOUNT; then
+    docker run -it --rm \
+      -v "$PWD":"$WORKDIR" \
+      -w "$WORKDIR" \
+      "$IMAGE" \
+      bash
+  else
+    docker run -it --rm "$IMAGE" bash
+  fi
 }
 
 run_node() {
-  IMAGE="node:20"
-
-  if has_mount; then
-    docker run -it --rm \
-      -v "$PWD":/app \
-      -w /app \
-      "$IMAGE" \
-      bash
-  else
-    docker run -it --rm "$IMAGE" bash
-  fi
+  run_container "node:22" "/app"
 }
 
 run_ubuntu() {
-  IMAGE="ubuntu"
+  run_container "ubuntu" "/workspace"
+}
 
-  if has_mount; then
-    docker run -it --rm \
-      -v "$PWD":/workspace \
-      -w /workspace \
-      "$IMAGE" \
-      bash
+# -------------------------
+# Commands
+# -------------------------
+
+cmd_ls() {
+  echo "Active svm environments:"
+  docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" | grep -E "node:22|ubuntu" || true
+}
+
+cmd_open() {
+  if [[ -z "$TARGET_NAME" ]]; then
+    echo "Usage: svm open <name>"
+    exit 1
+  fi
+
+  if ! docker ps -a --format '{{.Names}}' | grep -q "^$TARGET_NAME$"; then
+    echo "Container '$TARGET_NAME' not found"
+    exit 1
+  fi
+
+  docker start -ai "$TARGET_NAME"
+}
+
+cmd_remove() {
+  if [[ -z "$TARGET_NAME" ]]; then
+    echo "Usage: svm remove <name>"
+    exit 1
+  fi
+
+  if docker ps -a --format '{{.Names}}' | grep -q "^$TARGET_NAME$"; then
+    docker rm -f "$TARGET_NAME"
+    echo "Removed $TARGET_NAME"
   else
-    docker run -it --rm "$IMAGE" bash
+    echo "Container '$TARGET_NAME' not found"
   fi
 }
 
+# -------------------------
+# Help
+# -------------------------
+show_help() {
+  echo "svm - simple Docker sandbox manager"
+  echo ""
+  echo "Usage:"
+  echo "  svm <node|ubuntu> [options]"
+  echo "  svm ls"
+  echo "  svm open <name>"
+  echo "  svm remove <name>"
+  echo ""
+  echo "Commands:"
+  echo "  node              Node.js environment (node:20)"
+  echo "  ubuntu            Ubuntu environment"
+  echo "  ls                List environments"
+  echo "  open <name>       Attach to environment"
+  echo "  remove <name>     Delete environment"
+  echo ""
+  echo "Options:"
+  echo "  -m, --mount           Mount current directory"
+  echo "  -p, --persist <name>  Persistent container"
+  echo ""
+  echo "Examples:"
+  echo "  svm node -p api"
+  echo "  svm ls"
+  echo "  svm open api"
+  echo "  svm remove api"
+}
+
+# -------------------------
+# Router
+# -------------------------
 case "$MODE" in
   node)
     run_node
@@ -44,26 +182,20 @@ case "$MODE" in
   ubuntu)
     run_ubuntu
     ;;
-  help|-h|--help|"")
-    echo "svm - quick disposable Docker environments"
-    echo ""
-    echo "Usage:"
-    echo "  svm <image> [--mount|-m]"
-    echo ""
-    echo "Commands:"
-    echo "  node      Run Node.js environment (node:20)"
-    echo "  ubuntu    Run Ubuntu environment"
-    echo ""
-    echo "Flags:"
-    echo "  --mount, -m   Mount current directory into container"
-    echo ""
-    echo "Examples:"
-    echo "  svm node"
-    echo "  svm node --mount"
-    echo "  svm ubuntu -m"
+  list)
+    cmd_ls
+    ;;
+  open)
+    cmd_open
+    ;;
+  remove)
+    cmd_remove
+    ;;
+  help)
+    show_help
     ;;
   *)
-    echo "Command not found. Use: svm help"
+    show_help
     exit 1
     ;;
 esac
