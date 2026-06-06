@@ -12,7 +12,7 @@ TARGET_NAME=""
 # -------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    node|ubuntu)
+    node|ubuntu|debian)
       MODE="$1"
       shift
       ;;
@@ -105,13 +105,17 @@ run_ubuntu() {
   run_container "ubuntu" "/workspace"
 }
 
+run_debian() {
+  run_container "debian:latest" "/workspace"
+}
+
 # -------------------------
 # Commands
 # -------------------------
 
 cmd_ls() {
   echo "Active svm environments:"
-  docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" | grep -E "node:22|ubuntu" || true
+  docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" | grep -E "node|ubuntu|debian" || true
 }
 
 cmd_open() {
@@ -155,8 +159,9 @@ show_help() {
   echo "  svm remove <name>"
   echo ""
   echo "Commands:"
-  echo "  node              Node.js environment (node:20)"
+  echo "  node              Node.js environment (node:22)"
   echo "  ubuntu            Ubuntu environment"
+  echo "  debian            Debian environment (debian:latest)"
   echo "  ls                List environments"
   echo "  open <name>       Attach to environment"
   echo "  remove <name>     Delete environment"
@@ -181,6 +186,9 @@ case "$MODE" in
     ;;
   ubuntu)
     run_ubuntu
+    ;;
+  debian)
+    run_debian
     ;;
   list)
     cmd_ls
