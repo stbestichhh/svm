@@ -2,16 +2,39 @@
 
 set -e
 
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/svm"
+CONFIG_FILE="$CONFIG_DIR/config"
+
 MODE=""
 HAS_MOUNT=false
 PERSIST_NAME=""
 TARGET_NAME=""
+PROVIDER=""
+CONTAINER_ACTION=""
+CMD_PROVIDER=""
 
 # -------------------------
 # Parse arguments
 # -------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    system)
+      MODE="system"
+      CONTAINER_ACTION="$2"
+      shift 2
+      ;;
+
+    provider)
+      MODE="provider"
+      PROVIDER="$2"
+      shift 2
+      ;;
+
+    --provider)
+      CMD_PROVIDER="$2"
+      shift 2
+      ;;
+
     node|ubuntu|debian)
       MODE="$1"
       shift
@@ -57,44 +80,216 @@ while [[ $# -gt 0 ]]; do
 done
 
 # -------------------------
-# Run container
+# Provider helpers
 # -------------------------
-run_container() {
+
+save_provider() {
+  mkdir -p "$CONFIG_DIR"
+  echo "$1" > "$CONFIG_FILE"
+}
+
+get_provider() {
+  if [[ -f "$CONFIG_FILE" ]]; then
+    cat "$CONFIG_FILE"
+  else
+    echo "docker"
+  fi
+}
+
+get_current_provider() {
+  if [[ -n "$CMD_PROVIDER" ]]; then
+    echo "$CMD_PROVIDER"
+  else
+    get_provider
+  fi
+}
+
+check_provider_available() {
+  local provider
+  provider="$(get_current_provider)"
+
+  case "$provider" in
+    docker)
+      if ! command -v docker &>/dev/null; then
+        echo "Error: 'docker' is not installed or not in PATH"
+        exit 1
+      fi
+      ;;
+    osx)
+      if ! command -v container &>/dev/null; then
+        echo "Error: Apple 'container' CLI is not installed or not in PATH"
+        exit 1
+      fi
+      ;;
+    *)
+      echo "Error: Unknown provider '$provider'"
+      exit 1
+      ;;
+  esac
+}
+
+set_provider() {
+  case "$PROVIDER" in
+    docker|osx)
+      save_provider "$PROVIDER"
+      echo "Provider set to: $PROVIDER"
+      ;;
+    *)
+      echo "Unknown provider: $PROVIDER"
+      echo "Available providers: docker, osx"
+      exit 1
+      ;;
+  esac
+}
+
+# -------------------------
+# Container primitives
+# -------------------------
+
+container_exists() {
+  local NAME="$1"
+
+  case "$(get_current_provider)" in
+    docker)
+      docker ps -a --format '{{.Names}}' | grep -q "^${NAME}$"
+      ;;
+    osx)
+      container ls -a --format json | grep -q "\"id\":\"${NAME}\""
+      ;;
+  esac
+}
+
+create_container() {
   local IMAGE="$1"
   local WORKDIR="$2"
+  local NAME="$3"
 
-  if [[ -n "$PERSIST_NAME" ]]; then
-
-    if ! docker ps -a --format '{{.Names}}' | grep -q "^$PERSIST_NAME$"; then
-
+  case "$(get_current_provider)" in
+    docker)
       if $HAS_MOUNT; then
         docker create -it \
-          --name "$PERSIST_NAME" \
+          --name "$NAME" \
           -v "$PWD":"$WORKDIR" \
           -w "$WORKDIR" \
           "$IMAGE" \
           bash
       else
         docker create -it \
-          --name "$PERSIST_NAME" \
+          --name "$NAME" \
           "$IMAGE" \
           bash
       fi
-    fi
+      ;;
+    osx)
+      # osx: container start has no -it flags, so we run detached with
+      # sleep infinity to keep the container alive, then exec into it
+      if $HAS_MOUNT; then
+        container run -d \
+          --name "$NAME" \
+          --mount "type=bind,source=$PWD,target=$WORKDIR" \
+          -w "$WORKDIR" \
+          "$IMAGE" \
+          sleep infinity
+      else
+        container run -d \
+          --name "$NAME" \
+          "$IMAGE" \
+          sleep infinity
+      fi
+      ;;
+  esac
+}
 
-    docker start -ai "$PERSIST_NAME"
+# Starts and attaches to an existing stopped container
+attach_container() {
+  local NAME="$1"
+
+  case "$(get_current_provider)" in
+    docker)
+      docker start -ai "$NAME"
+      ;;
+    osx)
+      # Container may be stopped (e.g. after machine restart) — start it first
+      container start "$NAME" >/dev/null 2>&1 || true
+      container exec -it "$NAME" bash
+      ;;
+  esac
+}
+
+# Runs a one-off ephemeral container (auto-removed on exit)
+run_ephemeral() {
+  local IMAGE="$1"
+  local WORKDIR="$2"
+
+  case "$(get_current_provider)" in
+    docker)
+      if $HAS_MOUNT; then
+        docker run -it --rm \
+          -v "$PWD":"$WORKDIR" \
+          -w "$WORKDIR" \
+          "$IMAGE" \
+          bash
+      else
+        docker run -it --rm "$IMAGE" bash
+      fi
+      ;;
+    osx)
+      local CMD=(container run --rm -it)
+
+      if $HAS_MOUNT; then
+        CMD+=(
+          --mount "type=bind,source=$PWD,target=$WORKDIR"
+          -w "$WORKDIR"
+        )
+      fi
+
+      CMD+=("$IMAGE" bash)
+      "${CMD[@]}"
+      ;;
+  esac
+}
+
+list_containers() {
+  case "$(get_current_provider)" in
+    docker)
+      docker ps -a | grep -E "node|ubuntu|debian"
+      ;;
+    osx)
+      container ls -a | grep -E "node|ubuntu|debian"
+      ;;
+  esac
+}
+
+remove_container() {
+  local NAME="$1"
+
+  case "$(get_current_provider)" in
+    docker)
+      docker rm -f "$NAME"
+      ;;
+    osx)
+      container rm -f "$NAME"
+      ;;
+  esac
+}
+
+# -------------------------
+# High-level run flow
+# -------------------------
+
+run_container() {
+  local IMAGE="$1"
+  local WORKDIR="$2"
+
+  if [[ -n "$PERSIST_NAME" ]]; then
+    if ! container_exists "$PERSIST_NAME"; then
+      create_container "$IMAGE" "$WORKDIR" "$PERSIST_NAME"
+    fi
+    attach_container "$PERSIST_NAME"
     return
   fi
 
-  if $HAS_MOUNT; then
-    docker run -it --rm \
-      -v "$PWD":"$WORKDIR" \
-      -w "$WORKDIR" \
-      "$IMAGE" \
-      bash
-  else
-    docker run -it --rm "$IMAGE" bash
-  fi
+  run_ephemeral "$IMAGE" "$WORKDIR"
 }
 
 run_node() {
@@ -115,7 +310,7 @@ run_debian() {
 
 cmd_ls() {
   echo "Active svm environments:"
-  docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" | grep -E "node|ubuntu|debian" || true
+  list_containers
 }
 
 cmd_open() {
@@ -124,12 +319,12 @@ cmd_open() {
     exit 1
   fi
 
-  if ! docker ps -a --format '{{.Names}}' | grep -q "^$TARGET_NAME$"; then
+  if ! container_exists "$TARGET_NAME"; then
     echo "Container '$TARGET_NAME' not found"
     exit 1
   fi
 
-  docker start -ai "$TARGET_NAME"
+  attach_container "$TARGET_NAME"
 }
 
 cmd_remove() {
@@ -138,49 +333,82 @@ cmd_remove() {
     exit 1
   fi
 
-  if docker ps -a --format '{{.Names}}' | grep -q "^$TARGET_NAME$"; then
-    docker rm -f "$TARGET_NAME"
+  if container_exists "$TARGET_NAME"; then
+    remove_container "$TARGET_NAME"
     echo "Removed $TARGET_NAME"
   else
     echo "Container '$TARGET_NAME' not found"
   fi
 }
 
+cmd_system() {
+  if [[ -z "$CONTAINER_ACTION" ]]; then
+    echo "Usage: svm system <start|stop>"
+    exit 1
+  fi
+
+  case "$(get_current_provider)" in
+    docker)
+      echo "Docker does not require system management via svm"
+      ;;
+    osx)
+      container system "$CONTAINER_ACTION"
+      ;;
+  esac
+}
+
 # -------------------------
 # Help
 # -------------------------
+
 show_help() {
-  echo "svm - simple Docker sandbox manager"
+  echo "svm - simple container sandbox manager"
   echo ""
   echo "Usage:"
-  echo "  svm <node|ubuntu> [options]"
+  echo "  svm <node|ubuntu|debian> [options]"
   echo "  svm ls"
   echo "  svm open <name>"
   echo "  svm remove <name>"
   echo ""
   echo "Commands:"
-  echo "  node              Node.js environment (node:22)"
-  echo "  ubuntu            Ubuntu environment"
-  echo "  debian            Debian environment (debian:latest)"
-  echo "  ls                List environments"
-  echo "  open <name>       Attach to environment"
-  echo "  remove <name>     Delete environment"
+  echo "  provider <docker|osx>    Set preferred provider (default: docker)"
+  echo "  system <start|stop>      Control provider service (osx only)"
+  echo "  node                     Node.js environment (node:22)"
+  echo "  ubuntu                   Ubuntu environment"
+  echo "  debian                   Debian environment (debian:latest)"
+  echo "  ls                       List environments"
+  echo "  open <name>              Attach to a persistent environment"
+  echo "  remove <name>            Delete an environment"
   echo ""
   echo "Options:"
-  echo "  -m, --mount           Mount current directory"
-  echo "  -p, --persist <name>  Persistent container"
+  echo "  -m, --mount              Mount current directory into the container"
+  echo "  -p, --persist <name>     Use a named persistent container"
+  echo "  --provider <docker|osx>  Override provider for this command only"
   echo ""
   echo "Examples:"
   echo "  svm node -p api"
+  echo "  svm node -m"
   echo "  svm ls"
   echo "  svm open api"
   echo "  svm remove api"
+  echo "  svm provider osx"
+  echo "  svm system start"
+  echo "  svm node --provider osx"
 }
 
 # -------------------------
 # Router
 # -------------------------
+
+check_provider_available
+
 case "$MODE" in
+  provider)
+    set_provider
+    ;;
+  system)
+    cmd_system
+    ;;
   node)
     run_node
     ;;
