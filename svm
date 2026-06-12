@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VERSION=1.16
+VERSION=1.17
 
 set -e
 
@@ -67,6 +67,11 @@ while [[ $# -gt 0 ]]; do
       MODE="remove"
       TARGET_NAME="$2"
       shift 2
+      ;;
+
+    status)
+      MODE="status"
+      shift
       ;;
 
     help|-h|--help|"")
@@ -381,6 +386,7 @@ show_help() {
   echo "Commands:"
   echo "  provider <docker|osx>    Set preferred provider (default: docker)"
   echo "  system <start|stop>      Control provider service (osx only)"
+  echo "  status                   Show provider and environment info"
   echo "  node                     Node.js environment (node:22)"
   echo "  ubuntu                   Ubuntu environment"
   echo "  debian                   Debian environment (debian:latest)"
@@ -408,35 +414,103 @@ show_version() {
   echo "v1.16"
 }
 
+show_status() {
+  local provider
+  provider="$(get_current_provider)"
+
+  echo "svm v${VERSION}"
+  echo ""
+
+  # Provider info
+  echo "Provider:  $provider"
+
+  # Provider status
+  local status="unknown"
+  case "$provider" in
+    docker)
+      if docker info &>/dev/null; then
+        status="running"
+      else
+        status="stopped"
+      fi
+      ;;
+    osx)
+      if container system info &>/dev/null; then
+        status="running"
+      else
+        status="stopped"
+      fi
+      ;;
+  esac
+  echo "Status:    $status"
+
+  # Config
+  if [[ -f "$CONFIG_FILE" ]]; then
+    echo "Config:    $CONFIG_FILE"
+  else
+    echo "Config:    not set (using default: docker)"
+  fi
+
+  echo ""
+
+  # Persistent containers count
+  echo "Persistent containers:"
+  case "$provider" in
+    docker)
+      local count
+      count=$(docker ps -a --format '{{.Names}}' 2>/dev/null | wc -l | tr -d ' ')
+      echo "  $count container(s)"
+      ;;
+    osx)
+      local count
+      count=$(container ls -a 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
+      echo "  $count container(s)"
+      ;;
+  esac
+
+  echo ""
+
+  # Environments
+  echo "Available environments:"
+  echo "  node     node:22"
+  echo "  ubuntu   ubuntu"
+  echo "  debian   debian:latest"
+}
+
 # -------------------------
 # Router
 # -------------------------
-
-check_provider_available
 
 case "$MODE" in
   provider)
     set_provider
     ;;
   system)
+    check_provider_available
     cmd_system
     ;;
   node)
+    check_provider_available
     run_node
     ;;
   ubuntu)
+    check_provider_available
     run_ubuntu
     ;;
   debian)
+    check_provider_available
     run_debian
     ;;
   list)
+    check_provider_available
     cmd_ls
     ;;
   open)
+    check_provider_available
     cmd_open
     ;;
   remove)
+    check_provider_available
     cmd_remove
     ;;
   help)
@@ -444,6 +518,9 @@ case "$MODE" in
     ;;
   version)
     show_version
+    ;;
+  status)
+    show_status
     ;;
   *)
     show_help
