@@ -181,8 +181,6 @@ create_container() {
       fi
       ;;
     osx)
-      # osx: container start has no -it flags, so we run detached with
-      # sleep infinity to keep the container alive, then exec into it
       if $HAS_MOUNT; then
         container run -d \
           --name "$NAME" \
@@ -200,7 +198,6 @@ create_container() {
   esac
 }
 
-# Starts and attaches to an existing stopped container
 attach_container() {
   local NAME="$1"
 
@@ -209,14 +206,18 @@ attach_container() {
       docker start -ai "$NAME"
       ;;
     osx)
-      # Container may be stopped (e.g. after machine restart) — start it first
-      container start "$NAME" >/dev/null 2>&1 || true
+      if ! container ls --format json | grep -q "\"id\":\"${NAME}\""; then
+        echo "Starting ${NAME}..."
+        container start "$NAME"
+      fi
+
+      # shellcheck disable=SC2064
+      trap "echo 'Stopping ${NAME}...'; container stop '${NAME}'" EXIT
       container exec -it "$NAME" bash
       ;;
   esac
 }
 
-# Runs a one-off ephemeral container (auto-removed on exit)
 run_ephemeral() {
   local IMAGE="$1"
   local WORKDIR="$2"
@@ -252,10 +253,10 @@ run_ephemeral() {
 list_containers() {
   case "$(get_current_provider)" in
     docker)
-      docker ps -a | grep -E "node|ubuntu|debian"
+      docker ps -a
       ;;
     osx)
-      container ls -a | grep -E "node|ubuntu|debian"
+      container ls -a
       ;;
   esac
 }
