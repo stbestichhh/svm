@@ -4,6 +4,12 @@ Lightweight terminal-based sandbox environments powered by containers.
 
 `svm` lets you quickly create disposable or persistent development environments directly from your terminal without the overhead of full virtual machines or complex setup.
 
+#### One-line install
+
+```shell
+curl -fsSL https://raw.githubusercontent.com/stbestichhh/svm/master/install.sh | bash
+```
+
 ---
 
 ## Features
@@ -31,10 +37,10 @@ Lightweight terminal-based sandbox environments powered by containers.
 
 `svm` supports multiple container backends through a provider system:
 
-| Provider | ID | Platform | Description |
-|---|---|---|---|
-| Docker | `docker` | Linux, macOS, Windows (WSL2) | Default provider. Uses the Docker CLI and daemon. |
-| Apple Container | `osx` | macOS only | Uses Apple's native `container` CLI for lightweight macOS containers. |
+| Provider        | ID       | Platform                     | Description                                                           |
+|-----------------|----------|------------------------------|-----------------------------------------------------------------------|
+| Docker          | `docker` | Linux, macOS, Windows (WSL2) | Default provider. Uses the Docker CLI and daemon.                     |
+| Apple Container | `osx`    | macOS only                   | Uses Apple's native `container` CLI for lightweight macOS containers. |
 
 ### Set default provider
 
@@ -116,6 +122,34 @@ svm system stop
 
 ---
 
+### Status
+
+Show general information about `svm`, including the current provider, whether it is running, and available environments:
+
+```shell
+svm status
+```
+
+Example output:
+
+```
+svm v1.16
+
+Provider:  docker
+Status:    running
+Config:    /home/user/.config/svm/config
+
+Available environments:
+  node     node:22
+  ubuntu   ubuntu
+  debian   debian:latest
+
+Persistent containers:
+  3 container(s)
+```
+
+---
+
 ## Requirements
 
 You need at least one container provider installed:
@@ -177,6 +211,9 @@ svm node --provider osx
 # System control (osx provider)
 svm system start
 svm system stop
+
+# Status
+svm status
 ```
 
 ---
