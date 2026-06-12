@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+VERSION=1.16
+
 set -e
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/svm"
@@ -69,6 +71,11 @@ while [[ $# -gt 0 ]]; do
 
     help|-h|--help|"")
       MODE="help"
+      shift
+      ;;
+
+    version|-v|--version)
+      MODE="version"
       shift
       ;;
 
@@ -397,6 +404,10 @@ show_help() {
   echo "  svm node --provider osx"
 }
 
+show_version() {
+  echo "v1.16"
+}
+
 # -------------------------
 # Router
 # -------------------------
@@ -430,6 +441,9 @@ case "$MODE" in
     ;;
   help)
     show_help
+    ;;
+  version)
+    show_version
     ;;
   *)
     show_help
