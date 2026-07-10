@@ -7,6 +7,10 @@ set -e
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/svm"
 CONFIG_FILE="$CONFIG_DIR/config"
 
+# Label stamped on every svm-managed container so listing/counting can
+# distinguish them from containers created by other tools on the same provider.
+SVM_LABEL="svm"
+
 MODE=""
 HAS_MOUNT=false
 PERSIST_NAME=""
@@ -181,6 +185,7 @@ create_container() {
       if $HAS_MOUNT; then
         docker create -it \
           --name "$NAME" \
+          --label "${SVM_LABEL}=true" \
           -v "$PWD":"$WORKDIR" \
           -w "$WORKDIR" \
           "$IMAGE" \
@@ -188,6 +193,7 @@ create_container() {
       else
         docker create -it \
           --name "$NAME" \
+          --label "${SVM_LABEL}=true" \
           "$IMAGE" \
           bash
       fi
@@ -196,6 +202,7 @@ create_container() {
       if $HAS_MOUNT; then
         container run -d \
           --name "$NAME" \
+          --label "${SVM_LABEL}=true" \
           --mount "type=bind,source=$PWD,target=$WORKDIR" \
           -w "$WORKDIR" \
           "$IMAGE" \
@@ -203,6 +210,7 @@ create_container() {
       else
         container run -d \
           --name "$NAME" \
+          --label "${SVM_LABEL}=true" \
           "$IMAGE" \
           sleep infinity
       fi
@@ -238,16 +246,17 @@ run_ephemeral() {
     docker)
       if $HAS_MOUNT; then
         docker run -it --rm \
+          --label "${SVM_LABEL}=true" \
           -v "$PWD":"$WORKDIR" \
           -w "$WORKDIR" \
           "$IMAGE" \
           bash
       else
-        docker run -it --rm "$IMAGE" bash
+        docker run -it --rm --label "${SVM_LABEL}=true" "$IMAGE" bash
       fi
       ;;
     osx)
-      local CMD=(container run --rm -it)
+      local CMD=(container run --rm -it --label "${SVM_LABEL}=true")
 
       if $HAS_MOUNT; then
         CMD+=(
@@ -262,13 +271,42 @@ run_ephemeral() {
   esac
 }
 
+# List only svm-managed containers for the osx provider.
+#
+# Apple's `container ls` has no --filter flag, so we read the JSON output and
+# keep the entries carrying our label. Requires jq (ships with modern macOS);
+# if it is missing we warn and fall back to the unfiltered list.
+list_osx_svm() {
+  if ! command -v jq &>/dev/null; then
+    echo "Warning: 'jq' not found; cannot filter svm containers for the osx provider." >&2
+    echo "Install jq to list only svm-managed containers. Showing all containers:" >&2
+    container ls -a
+    return
+  fi
+
+  local json
+  json="$(container ls -a --format json 2>/dev/null)"
+  [[ -z "$json" ]] && json="[]"
+
+  printf '%s' "$json" | jq -r --arg k "$SVM_LABEL" '
+    ["ID", "IMAGE", "STATE", "IP"],
+    ( .[]
+      | select(.configuration.labels[$k] == "true")
+      | [ .id,
+          .configuration.image.reference,
+          .status.state,
+          (.status.networks[0].ipv4Address // "-") ] )
+    | @tsv
+  ' | column -t -s "$(printf '\t')"
+}
+
 list_containers() {
   case "$(get_current_provider)" in
     docker)
-      docker ps -a
+      docker ps -a --filter "label=${SVM_LABEL}=true"
       ;;
     osx)
-      container ls -a
+      list_osx_svm
       ;;
   esac
 }
@@ -411,7 +449,7 @@ show_help() {
 }
 
 show_version() {
-  echo "v1.16"
+  echo "v$VERSION"
 }
 
 show_status() {
@@ -435,7 +473,7 @@ show_status() {
       fi
       ;;
     osx)
-      if container system info &>/dev/null; then
+      if container system status &>/dev/null; then
         status="running"
       else
         status="stopped"
@@ -453,17 +491,23 @@ show_status() {
 
   echo ""
 
-  # Persistent containers count
+  # Persistent containers count (svm-managed only)
   echo "Persistent containers:"
   case "$provider" in
     docker)
       local count
-      count=$(docker ps -a --format '{{.Names}}' 2>/dev/null | wc -l | tr -d ' ')
+      count=$(docker ps -a --filter "label=${SVM_LABEL}=true" --format '{{.Names}}' 2>/dev/null | wc -l | tr -d ' ')
       echo "  $count container(s)"
       ;;
     osx)
       local count
-      count=$(container ls -a 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
+      if command -v jq &>/dev/null; then
+        count=$(container ls -a --format json 2>/dev/null \
+          | jq --arg k "$SVM_LABEL" '[ .[] | select(.configuration.labels[$k] == "true") ] | length' 2>/dev/null)
+      else
+        count=$(container ls -a 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
+      fi
+      [[ -z "$count" ]] && count=0
       echo "  $count container(s)"
       ;;
   esac

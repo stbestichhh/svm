@@ -109,6 +109,8 @@ List environments:
 svm ls
 ```
 
+`svm ls` (and the count shown by `svm status`) lists **only containers created by `svm`** — other containers running on the same provider are ignored. This works by stamping an `svm=true` label on every container `svm` creates and filtering on it.
+
 ---
 
 ### System management
@@ -155,7 +157,7 @@ Persistent containers:
 You need at least one container provider installed:
 
 * **Docker** — Docker installed and the Docker engine running
-* **Apple Container (osx)** — Apple `container` CLI available in PATH (macOS only)
+* **Apple Container (osx)** — Apple `container` CLI available in PATH (macOS only). `jq` is also recommended so `svm ls`/`svm status` can filter to svm-managed containers; it ships with recent macOS and is otherwise available via `brew install jq`.
 
 ---
 
