@@ -1,0 +1,36 @@
+{
+  "name": "svmbox",
+  "version": "1.18.0",
+  "description": "Lightweight terminal-based sandbox environments powered by containers (Docker & Apple Container).",
+  "bin": {
+    "svm": "./svm"
+  },
+  "files": [
+    "svm"
+  ],
+  "keywords": [
+    "cli",
+    "container",
+    "docker",
+    "apple-container",
+    "sandbox",
+    "sandbox-environment",
+    "developer-tools",
+    "devtools",
+    "vm"
+  ],
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stbestichhh/svm.git"
+  },
+  "homepage": "https://github.com/stbestichhh/svm#readme",
+  "bugs": {
+    "url": "https://github.com/stbestichhh/svm/issues"
+  },
+  "author": "Kiril Yakymchuk",
+  "license": "MIT"
+}
