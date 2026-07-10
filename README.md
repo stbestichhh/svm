@@ -4,7 +4,15 @@ Lightweight terminal-based sandbox environments powered by containers.
 
 `svm` lets you quickly create disposable or persistent development environments directly from your terminal without the overhead of full virtual machines or complex setup.
 
-#### One-line install
+#### Quick install
+
+Via npm (installs the `svm` command globally):
+
+```shell
+npm i -g svmbox
+```
+
+Or with a one-line script:
 
 ```shell
 curl -fsSL https://raw.githubusercontent.com/stbestichhh/svm/master/install.sh | bash
@@ -135,7 +143,7 @@ svm status
 Example output:
 
 ```
-svm v1.16
+svm v1.18
 
 Provider:  docker
 Status:    running
@@ -163,7 +171,17 @@ You need at least one container provider installed:
 
 ## Installation
 
-### 1. Via `curl`
+### 1. Via `npm`
+
+Installs the `svm` command globally. Requires Node.js/npm; the package is published as [`svmbox`](https://www.npmjs.com/package/svmbox), while the installed command is `svm`.
+
+```shell
+npm i -g svmbox
+```
+
+---
+
+### 2. Via `curl`
 
 ```shell
 curl -fsSL https://raw.githubusercontent.com/stbestichhh/svm/master/svm -o svm
@@ -173,7 +191,7 @@ sudo mv svm /usr/local/bin/
 
 ---
 
-### 2. Via `wget`
+### 3. Via `wget`
 
 ```shell
 wget https://raw.githubusercontent.com/stbestichhh/svm/master/svm
@@ -183,7 +201,7 @@ sudo mv svm /usr/local/bin/
 
 ---
 
-### 3. One-line install
+### 4. One-line install script
 
 ```shell
 curl -fsSL https://raw.githubusercontent.com/stbestichhh/svm/master/install.sh | bash
