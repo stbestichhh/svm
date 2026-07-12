@@ -25,6 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/stbestichhh/svm/master/install.sh |
 * Run isolated Node.js, Ubuntu, or Debian environments in seconds
 * Disposable or persistent containers
 * Optional current-directory mounting for development workflows
+* Publish container ports to the host to reach services running inside
 * Open, remove, start, and stop environments
 * **Multiple container providers** — Docker and Apple Container (macOS)
 * Switch providers globally or override per-command
@@ -91,6 +92,35 @@ svm ubuntu -m
 
 ---
 
+### Port forwarding
+
+Publish a container port to the host so you can reach a server running inside the
+container (for example a dev server on `localhost`). Use `-P` / `--port` with the
+`host:container` form (an optional `/tcp` or `/udp` protocol suffix is allowed):
+
+```shell
+# Reach the container's port 3000 at http://localhost:3000 on the host
+svm node -P 3000:3000
+
+# Map to a different host port (host 8080 -> container 80)
+svm ubuntu -P 8080:80
+
+# Repeat the flag to publish several ports
+svm node -p api -P 3000:3000 -P 5432:5432
+```
+
+Notes:
+
+* Works with both the `docker` and `osx` providers — they share the same
+  `host:container` publish syntax.
+* Ports are set when the container is **created**. For a persistent container
+  (`-p <name>`), the ports you pass on first creation are fixed; to change them,
+  `svm remove <name>` and recreate it with the new `-P` flags.
+* `svm ls` shows each container's published ports (as `host:container/proto`),
+  including while the container is stopped.
+
+---
+
 ### Persistent environments
 
 Create persistent environment:
@@ -143,7 +173,7 @@ svm status
 Example output:
 
 ```
-svm v1.18
+svm v1.19
 
 Provider:  docker
 Status:    running
@@ -217,6 +247,8 @@ svm node
 svm node -m
 svm node -p backend
 svm node -p backend -m
+svm node -P 3000:3000
+svm node -p backend -P 3000:3000 -P 5432:5432
 
 # Manage environments
 svm ls
