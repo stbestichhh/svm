@@ -1,6 +1,6 @@
 {
   "name": "svmbox",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "description": "Lightweight terminal-based sandbox environments powered by containers (Docker & Apple Container).",
   "bin": {
     "svm": "./svm"
