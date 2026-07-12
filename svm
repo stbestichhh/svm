@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VERSION=1.18
+VERSION=1.19
 
 set -e
 
@@ -18,6 +18,9 @@ TARGET_NAME=""
 PROVIDER=""
 CONTAINER_ACTION=""
 CMD_PROVIDER=""
+# Port publishing specs (host:container[/proto]) collected from -P/--port flags.
+# Ports are published at container creation time on both providers.
+PORTS=()
 
 # -------------------------
 # Parse arguments
@@ -53,6 +56,11 @@ while [[ $# -gt 0 ]]; do
 
     -p|--persist)
       PERSIST_NAME="$2"
+      shift 2
+      ;;
+
+    -P|--port)
+      PORTS+=("$2")
       shift 2
       ;;
 
@@ -180,12 +188,20 @@ create_container() {
   local WORKDIR="$2"
   local NAME="$3"
 
+  # Both providers accept the same `-p host:container` publish syntax.
+  local PORT_ARGS=()
+  local p
+  for p in "${PORTS[@]}"; do
+    PORT_ARGS+=(-p "$p")
+  done
+
   case "$(get_current_provider)" in
     docker)
       if $HAS_MOUNT; then
         docker create -it \
           --name "$NAME" \
           --label "${SVM_LABEL}=true" \
+          "${PORT_ARGS[@]}" \
           -v "$PWD":"$WORKDIR" \
           -w "$WORKDIR" \
           "$IMAGE" \
@@ -194,6 +210,7 @@ create_container() {
         docker create -it \
           --name "$NAME" \
           --label "${SVM_LABEL}=true" \
+          "${PORT_ARGS[@]}" \
           "$IMAGE" \
           bash
       fi
@@ -203,6 +220,7 @@ create_container() {
         container run -d \
           --name "$NAME" \
           --label "${SVM_LABEL}=true" \
+          "${PORT_ARGS[@]}" \
           --mount "type=bind,source=$PWD,target=$WORKDIR" \
           -w "$WORKDIR" \
           "$IMAGE" \
@@ -211,6 +229,7 @@ create_container() {
         container run -d \
           --name "$NAME" \
           --label "${SVM_LABEL}=true" \
+          "${PORT_ARGS[@]}" \
           "$IMAGE" \
           sleep infinity
       fi
@@ -242,21 +261,35 @@ run_ephemeral() {
   local IMAGE="$1"
   local WORKDIR="$2"
 
+  # Both providers accept the same `-p host:container` publish syntax.
+  local PORT_ARGS=()
+  local p
+  for p in "${PORTS[@]}"; do
+    PORT_ARGS+=(-p "$p")
+  done
+
   case "$(get_current_provider)" in
     docker)
       if $HAS_MOUNT; then
         docker run -it --rm \
           --label "${SVM_LABEL}=true" \
+          "${PORT_ARGS[@]}" \
           -v "$PWD":"$WORKDIR" \
           -w "$WORKDIR" \
           "$IMAGE" \
           bash
       else
-        docker run -it --rm --label "${SVM_LABEL}=true" "$IMAGE" bash
+        docker run -it --rm \
+          --label "${SVM_LABEL}=true" \
+          "${PORT_ARGS[@]}" \
+          "$IMAGE" \
+          bash
       fi
       ;;
     osx)
       local CMD=(container run --rm -it --label "${SVM_LABEL}=true")
+
+      CMD+=("${PORT_ARGS[@]}")
 
       if $HAS_MOUNT; then
         CMD+=(
@@ -289,21 +322,47 @@ list_osx_svm() {
   [[ -z "$json" ]] && json="[]"
 
   printf '%s' "$json" | jq -r --arg k "$SVM_LABEL" '
-    ["ID", "IMAGE", "STATE", "IP"],
+    ["ID", "IMAGE", "STATE", "IP", "PORTS"],
     ( .[]
       | select(.configuration.labels[$k] == "true")
       | [ .id,
           .configuration.image.reference,
           .status.state,
-          (.status.networks[0].ipv4Address // "-") ] )
+          (.status.networks[0].ipv4Address // "-"),
+          ( [ .configuration.publishedPorts[]? | "\(.hostPort):\(.containerPort)/\(.proto)" ]
+            | join(",") | if . == "" then "-" else . end ) ] )
     | @tsv
   ' | column -t -s "$(printf '\t')"
+}
+
+# List only svm-managed containers for the docker provider, including the ports
+# each publishes to the host. `docker ps` only reports ports for *running*
+# containers, but svm containers stop when their shell exits; the configured
+# bindings live in `.HostConfig.PortBindings` regardless of state, so we read
+# those via `docker inspect` and render our own table.
+list_docker_svm() {
+  local ids
+  ids=$(docker ps -a --filter "label=${SVM_LABEL}=true" --format '{{.ID}}')
+
+  {
+    printf 'NAME|IMAGE|STATE|PORTS\n'
+    if [[ -n "$ids" ]]; then
+      # $p/$c are Go-template variables, so this format string must stay
+      # single-quoted (the shell must not expand them). Ports render as
+      # host:container/proto; sed strips the leading '/' from .Name and the
+      # trailing ',' left by the range.
+      # shellcheck disable=SC2086
+      docker inspect \
+        --format '{{.Name}}|{{.Config.Image}}|{{.State.Status}}|{{if .HostConfig.PortBindings}}{{range $p, $c := .HostConfig.PortBindings}}{{range $c}}{{.HostPort}}:{{$p}},{{end}}{{end}}{{else}}-{{end}}' \
+        $ids | sed -e 's#^/##' -e 's/,$//'
+    fi
+  } | column -t -s '|'
 }
 
 list_containers() {
   case "$(get_current_provider)" in
     docker)
-      docker ps -a --filter "label=${SVM_LABEL}=true"
+      list_docker_svm
       ;;
     osx)
       list_osx_svm
@@ -332,8 +391,17 @@ run_container() {
   local IMAGE="$1"
   local WORKDIR="$2"
 
+  if [[ ${#PORTS[@]} -gt 0 ]]; then
+    echo "Publishing ports: ${PORTS[*]}"
+  fi
+
   if [[ -n "$PERSIST_NAME" ]]; then
-    if ! container_exists "$PERSIST_NAME"; then
+    if container_exists "$PERSIST_NAME"; then
+      if [[ ${#PORTS[@]} -gt 0 ]]; then
+        echo "Note: '$PERSIST_NAME' already exists; ports are fixed at creation and cannot be changed here." >&2
+        echo "      Remove it (svm remove $PERSIST_NAME) and recreate to change published ports." >&2
+      fi
+    else
       create_container "$IMAGE" "$WORKDIR" "$PERSIST_NAME"
     fi
     attach_container "$PERSIST_NAME"
@@ -435,11 +503,15 @@ show_help() {
   echo "Options:"
   echo "  -m, --mount              Mount current directory into the container"
   echo "  -p, --persist <name>     Use a named persistent container"
+  echo "  -P, --port <spec>        Publish a port to the host (host:container[/proto]);"
+  echo "                           repeatable. Applied at container creation."
   echo "  --provider <docker|osx>  Override provider for this command only"
   echo ""
   echo "Examples:"
   echo "  svm node -p api"
   echo "  svm node -m"
+  echo "  svm node -P 3000:3000"
+  echo "  svm node -p api -P 8080:80 -P 5432:5432"
   echo "  svm ls"
   echo "  svm open api"
   echo "  svm remove api"
