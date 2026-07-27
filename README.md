@@ -18,6 +18,18 @@ Or with a one-line script:
 curl -fsSL https://raw.githubusercontent.com/stbestichhh/svm/master/install.sh | bash
 ```
 
+## Contents
+
+- [Features](#features)
+- [Supported Environments](#supported-environments)
+- [Container Providers](#container-providers)
+- [Usage](#usage)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Examples](#examples)
+- [Why?](#why)
+- [License](#license)
+
 ---
 
 ## Features
@@ -235,6 +247,12 @@ sudo mv svm /usr/local/bin/
 
 ```shell
 curl -fsSL https://raw.githubusercontent.com/stbestichhh/svm/master/install.sh | bash
+```
+
+### 5. Via zx (requires `zx`: `npm i -g zx`)
+
+```shell
+curl -fsSL https://raw.githubusercontent.com/stbestichhh/svm/master/install-zx.sh | bash
 ```
 
 ---
